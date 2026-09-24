@@ -14,10 +14,11 @@
         "data": {}
       },
       "account": {
-        "title": "Subscriber number and authCode",
-        "description": "The subscriber number is the last part of the billing URL, for example 1700075442 in .../ZS0105/**1700075442**.\n\nThe authCode is the value after `authCode=` in the redirect URL and is valid for about 5 minutes.\n\n{error_detail}",
+        "title": "Account details and authCode",
+        "description": "**authCode**: the value after `authCode=` in the redirect URL from the previous step (valid for about 5 minutes).\n\n**subsCode**: the last part of the billing URL, for example 1700075442 in .../ZS0105/**1700075442**.\n\n**subsId**: a 32 character account id. To get it, log in at https://www.towngasvcc.com/?login=true (phone number + SMS code) and open https://www.towngasvcc.com/user/querySubsList — the `subsId` field in the returned JSON.\n\n{error_detail}",
         "data": {
           "subsCode": "Subscriber number (subsCode)",
+          "subsId": "Account id (subsId, 32 chars)",
           "auth_code": "authCode",
           "updatetime": "Update interval (minutes)",
           "flaresolverr_url": "FlareSolverr URL (optional)"

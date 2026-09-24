@@ -30,6 +30,7 @@ from .const import (
     CONF_ORG_CODE,
     CONF_REFRESH_TOKEN,
     CONF_SUBS_CODE,
+    CONF_SUBS_ID,
     CONF_TOKEN_CREATE_TIME,
     CONF_TOKEN_EXPIRES_IN,
     CONF_TOKEN_REFRESH_INTERVAL,
@@ -76,6 +77,7 @@ async def async_setup_entry(
         config[CONF_HOST],
         config[CONF_ORG_CODE],
         config[CONF_SUBS_CODE],
+        subs_id=config.get(CONF_SUBS_ID),
         access_token=config.get(CONF_ACCESS_TOKEN),
         refresh_token=config.get(CONF_REFRESH_TOKEN),
         token_create_time=config.get(CONF_TOKEN_CREATE_TIME, 0.0),
@@ -170,7 +172,7 @@ class TowngasCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             raise UpdateFailed(str(err)) from err
 
         try:
-            data = await self.api.async_fetch_balance()
+            data = await self.api.async_fetch_data()
         except TowngasAuthError:
             # 服务端认为令牌已失效：刷新后重试一次
             _LOGGER.info("access_token 被服务端判定失效，尝试刷新后重试")
@@ -181,7 +183,7 @@ class TowngasCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             except TowngasApiError as err:
                 raise UpdateFailed(str(err)) from err
             try:
-                data = await self.api.async_fetch_balance()
+                data = await self.api.async_fetch_data()
             except TowngasAuthError as err:
                 raise ConfigEntryAuthFailed(str(err)) from err
             except TowngasApiError as err:
@@ -211,7 +213,7 @@ class TowngasSensor(CoordinatorEntity[TowngasCoordinator], SensorEntity):
         self._host = config[CONF_HOST]
         self._entry_id = entry_id
 
-        self._attr_name = f"Towngas Balance {self._subs_code}"
+        self._attr_name = f"Towngas Gas Balance {self._subs_code}"
         self._attr_unique_id = f"towngas_balance_{self._subs_code}_{self._org_code}"
         self._attr_device_info = {
             "identifiers": {(DOMAIN, self._attr_unique_id)},
@@ -228,15 +230,35 @@ class TowngasSensor(CoordinatorEntity[TowngasCoordinator], SensorEntity):
 
     @property
     def extra_state_attributes(self) -> dict[str, Any] | None:
-        if not self.coordinator.data:
-            return None
+        datas = self.coordinator.data or {}
         attrs: dict[str, Any] = {
             "subs_code": self._subs_code,
             "org_code": self._org_code,
-            "host": self._host,
             "using_flaresolverr": self.coordinator.using_flaresolverr,
             "token_remain": self.coordinator.api.token_remain,
         }
         if self.coordinator.last_updated:
             attrs["last_update"] = self.coordinator.last_updated.isoformat()
+
+        # 把接口返回的标量字段都透出来（读数、账单、户名等），便于核对
+        for key, value in datas.items():
+            if key == "savingSum":
+                continue
+            if isinstance(value, (str, int, float)) or value is None:
+                attrs[key] = value
+        reading = datas.get("readingRptList")
+        if isinstance(reading, list) and reading and isinstance(reading[0], dict):
+            attrs["recordDate"] = reading[0].get("recordDate")
+            attrs["currReading"] = reading[0].get("currReading")
+        gas_fee = datas.get("gasFee")
+        if isinstance(gas_fee, dict):
+            for key in ("lastReading", "currReading", "totalAmount", "totalFee", "recordDate"):
+                if gas_fee.get(key) is not None:
+                    attrs.setdefault(f"gasFee_{key}", gas_fee[key])
+            bills = gas_fee.get("gasFeeList")
+            if isinstance(bills, list) and bills and isinstance(bills[0], dict):
+                bill = bills[0]
+                for key in ("yrMonth", "amount", "price", "chrgSum", "unpaidFee", "paidSum", "currReading"):
+                    if bill.get(key) is not None:
+                        attrs.setdefault(f"bill_{key}", bill[key])
         return attrs

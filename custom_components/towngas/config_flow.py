@@ -28,6 +28,7 @@ from .const import (
     CONF_HOST,
     CONF_ORG_CODE,
     CONF_SUBS_CODE,
+    CONF_SUBS_ID,
     CONF_TOKEN_REFRESH_INTERVAL,
     CONF_UPDATE_INTERVAL,
     DEFAULT_FLARESOLVERR_URL,
@@ -89,6 +90,7 @@ class TowngasConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         self.selected_org: dict[str, Any] | None = None
         self._oauth_url = ""
         self._subs_code = ""
+        self._subs_id = ""
 
     # ------------------------------------------------------------------
     #  工具
@@ -113,6 +115,7 @@ class TowngasConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             org.get("host", ""),
             org.get("orgCode", ""),
             self._subs_code or "unknown",
+            subs_id=self._subs_id or None,
             flaresolverr_url=flaresolverr_url,
         )
 
@@ -193,6 +196,7 @@ class TowngasConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
         if user_input is not None:
             self._subs_code = user_input[CONF_SUBS_CODE]
+            self._subs_id = user_input[CONF_SUBS_ID]
             auth_code = _parse_auth_code(user_input.get(CONF_AUTH_CODE, ""))
             api = self._new_api(
                 flaresolverr_url=user_input.get(CONF_FLARESOLVERR_URL)
@@ -213,9 +217,11 @@ class TowngasConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             if token_ok:
                 # 顺手验证一次取数，失败不阻塞创建（实体状态会显示真实原因）
                 try:
-                    await api.async_fetch_balance()
+                    await api.async_fetch_data()
+                    _LOGGER.info("首次取数校验通过")
                 except Exception as err:  # noqa: BLE001
                     _LOGGER.warning("首次取数校验未通过（仍会创建条目）：%s", err)
+                    description_placeholders["error_detail"] = f"（取数校验未通过：{err}）"
 
                 await self.async_set_unique_id(
                     f"{self._subs_code}_{self.selected_org['orgCode']}"
@@ -230,6 +236,7 @@ class TowngasConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                     ),
                     data={
                         CONF_SUBS_CODE: self._subs_code,
+                        CONF_SUBS_ID: self._subs_id,
                         CONF_ORG_CODE: self.selected_org["orgCode"],
                         CONF_HOST: self.selected_org["host"],
                         CONF_UPDATE_INTERVAL: user_input[CONF_UPDATE_INTERVAL],
@@ -244,6 +251,9 @@ class TowngasConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 {
                     vol.Required(CONF_SUBS_CODE): vol.All(
                         str, vol.Strip, vol.Length(min=1)
+                    ),
+                    vol.Required(CONF_SUBS_ID): vol.All(
+                        str, vol.Strip, vol.Length(min=8)
                     ),
                     vol.Required(CONF_AUTH_CODE): str,
                     vol.Optional(

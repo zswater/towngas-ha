@@ -12,7 +12,7 @@
 
 1. **选择燃气分公司**：下拉列表里可以搜「中山」这类关键字；
 2. **微信扫码授权**：配置向导会显示一个二维码，用**手机微信**扫一扫并确认授权（在电脑浏览器里直接打开这个链接会被微信拦截）。授权后页面会跳到 `https://weixin.towngasvcc.com/h5-gas/`，复制跳转地址里 `authCode=` 后面那一串；
-3. **填写户号与授权码**：户号（subsCode）见下一节；授权码粘贴上一步拿到的那串；可选填刷新间隔（默认 30 分钟）和 FlareSolverr 地址。
+3. **填写户号信息与授权码**：需要三项 —— 户号（subsCode，见下一节）、**气户标识（subsId，32 位）**、上一步拿到的授权码；可选填刷新间隔（默认 30 分钟）和 FlareSolverr 地址。
 
 集成会把 `refresh_token` 保存在配置条目里并定时保活；令牌彻底失效时会自动弹出「重新授权」，重新扫码即可，不需要重新添加集成。
 
@@ -23,10 +23,23 @@
 <img width="890" height="651" alt="ScreenShot_2026-01-06_082848_870" src="https://github.com/user-attachments/assets/028576fd-0ba6-4aae-a82a-8d8f11d9db8a" />
 
 
-# 获取用户号、区域码
+# 获取用户号（subsCode）、区域码
 打开港华燃气网址：https://www.towngasvcc.com/
 选择自己的港华分公司，登录自己的燃气账号，打开业务办理>账单缴费，网址加载完后为：https://xxxxxx.towngasvcc.com/business/pay/owe/QYXXX/16XXXXX
-16XXXXX为用户号（也就是账单缴费网址的最后一段）
+16XXXXX为用户号（也就是账单缴费网址的最后一段），QYXXX 为区域码（对应配置里的分公司）
+
+# 获取气户标识（subsId）
+账号数据接口需要 32 位的 `subsId`（接口里叫「气户标识」），取法：
+
+1. 浏览器打开 https://www.towngasvcc.com/?login=true ，用**手机号 + 图形验证码 + 短信验证码**登录（或页面上的微信扫码登录）；
+2. 登录成功后，在同一个浏览器里打开 https://www.towngasvcc.com/user/querySubsList ；
+3. 页面会返回一段 JSON，形如：
+   ```json
+   {"datas":[{"subsId":"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx","subsCode":"1700075442","subsName":"...","subsAddr":"..."}]}
+   ```
+   其中 `subsId` 就是配置集成时要填的值（名下有多块表时会有多条，按 subsCode 或地址区分）。
+
+> 一个户号只需要抄一次，填进集成后就不用再管了。
 
 # 关于部分地区防爬
 部分地区的服务器存在防爬机制，需要调用外部工具FlareSolverr才能正常获取到数据，已知地区：山东，其他地区自行测试

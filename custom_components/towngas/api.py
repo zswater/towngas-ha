@@ -38,12 +38,13 @@ from .const import (
     RESULT_CODE_TOKEN_EXPIRED,
     SIGN_SALT,
     TOKEN_EXPIRY_MARGIN,
+    VCC_CBS_BASE,
 )
 
 _LOGGER = logging.getLogger(__name__)
 
-API_PATH = "/openapi/uv1/biz/checkRouters"
-API_SCENE = "2003"
+# 账号数据接口：余额/抄表/账单都在 preCheck 的 datas 里
+API_PATH = "/charge/preCheck"
 
 BROWSER_HEADERS = {
     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/133.0.0.0 Safari/537.36",
@@ -95,6 +96,7 @@ class TowngasApi:
         org_code: str,
         subs_code: str,
         *,
+        subs_id: str | None = None,
         access_token: str | None = None,
         refresh_token: str | None = None,
         token_create_time: float = 0.0,
@@ -105,6 +107,7 @@ class TowngasApi:
         self._host = host.rstrip("/")
         self._org_code = org_code
         self._subs_code = subs_code
+        self._subs_id = subs_id
         self._flaresolverr_url = flaresolverr_url
 
         self.access_token = access_token
@@ -246,15 +249,18 @@ class TowngasApi:
     # ------------------------------------------------------------------
     #  取数
     # ------------------------------------------------------------------
-    async def async_fetch_balance(self) -> dict[str, Any]:
-        """拉取余额；令牌失效时抛 TowngasAuthError 由调用方刷新重试。"""
-        params = {
-            "token": self.access_token or "",
-            "scene": API_SCENE,
-            "subsCode": self._subs_code,
-            "orgCode": self._org_code,
+    async def async_fetch_data(self) -> dict[str, Any]:
+        """拉取户号数据（余额/抄表/账单）；令牌失效时抛 TowngasAuthError 由调用方刷新重试。"""
+        if not self._subs_id:
+            raise TowngasApiError("缺少 subsId（气户标识），请在集成选项里补齐或重新添加集成")
+
+        params: dict[str, Any] = {
+            "subsId": self._subs_id,
+            "timestamp": int(time.time() * 1000),
         }
-        url = f"{self._host}{API_PATH}?{urlencode(params)}"
+        params["sign"] = sign_params(params)
+        url = f"{VCC_CBS_BASE}{API_PATH}?{urlencode(params)}"
+
         status, content_type, text = await self._request(url)
         data = self._decode_json(status, content_type, text)
 
@@ -262,20 +268,41 @@ class TowngasApi:
         if code == RESULT_CODE_TOKEN_EXPIRED:
             raise TowngasAuthError(f"access_token 已失效：{data.get('resultMsg')}")
 
-        balance = data.get("data") or data.get("resultData") or data
-        if not isinstance(balance, dict) or "savingSum" not in balance:
-            message = data.get("resultMsg") or data.get("msg") or data.get("message")
+        datas = data.get("datas")
+        if not isinstance(datas, dict):
+            message = data.get("resultMsg") or data.get("msg") or data.get("message") or ""
             raise TowngasApiError(
-                f"响应中没有 savingSum（code={code or '无'}，message={message or '无'}，keys={list(data)}）"
+                f"接口返回异常：resultCode={code or '无'}，message={message or '无'}，keys={list(data)}"
             )
 
-        try:
-            balance["savingSum"] = float(balance["savingSum"])
-        except (TypeError, ValueError) as err:
-            raise TowngasApiError(f"savingSum 不是数字：{balance['savingSum']!r}") from err
+        error_code = str(datas.get("errorCode") or "")
+        if error_code not in ("", "0"):
+            raise TowngasApiError(
+                f"接口错误 {error_code}：{datas.get('errorMsg') or ''}"
+            )
+
+        # 余额字段统一转 float，供传感器直接使用
+        for key in ("savingSum", "totalFee", "lastReading", "currReading"):
+            value = datas.get(key)
+            if value is None or isinstance(value, (int, float)):
+                continue
+            try:
+                datas[key] = float(value)
+            except (TypeError, ValueError):
+                pass
+
+        gas_fee = datas.get("gasFee")
+        if isinstance(gas_fee, dict):
+            for key in ("totalFee", "totalAmount", "lastReading", "currReading"):
+                value = gas_fee.get(key)
+                if isinstance(value, str):
+                    try:
+                        gas_fee[key] = float(value)
+                    except ValueError:
+                        pass
 
         self.last_updated = datetime.now().astimezone()
-        return balance
+        return datas
 
     # ------------------------------------------------------------------
     #  底层请求

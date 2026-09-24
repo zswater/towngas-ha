@@ -14,10 +14,11 @@
         "data": {}
       },
       "account": {
-        "title": "填写户号与授权码",
-        "description": "户号是账单缴费网址的最后一段，例如 .../ZS0105/**1700075442** 里的 1700075442。\n\n授权码是上一步跳转地址里 `authCode=` 后面的内容，有效期约 5 分钟。\n\n{error_detail}",
+        "title": "填写户号信息与授权码",
+        "description": "**授权码**：上一步跳转地址里 `authCode=` 后面的内容，有效期约 5 分钟。\n\n**户号 (subsCode)**：账单缴费网址的最后一段，例如 .../ZS0105/**1700075442** 里的 1700075442。\n\n**气户标识 (subsId)**：32 位字符串，取法：浏览器登录 https://www.towngasvcc.com/?login=true （手机号 + 短信验证码），再打开 https://www.towngasvcc.com/user/querySubsList ，页面 JSON 里 `subsId` 字段即是。\n\n{error_detail}",
         "data": {
           "subsCode": "户号 (subsCode)",
+          "subsId": "气户标识 (subsId，32 位)",
           "auth_code": "授权码 (authCode)",
           "updatetime": "刷新间隔（分钟）",
           "flaresolverr_url": "FlareSolverr 地址（可选）"
