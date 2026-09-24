@@ -3,28 +3,49 @@
     "step": {
       "user": {
         "title": "选择燃气分公司",
-        "description": "请选择你的港华燃气分公司。用户可以对照账单缴费网址中的区域码，例如 .../business/pay/owe/ZS0105/16XXXXX。",
+        "description": "请选择你的港华燃气分公司，可以对照账单缴费网址里的区域码，例如 .../business/pay/owe/ZS0105/16XXXXX。",
         "data": {
           "org_code": "燃气分公司"
         }
       },
+      "oauth": {
+        "title": "微信扫码授权",
+        "description": "查询余额需要登录态，本集成使用港华统一的微信授权，不会保存你的密码。\n\n1. 用**手机微信**扫一扫下面的二维码（在电脑浏览器直接打开会被微信拦截）；\n2. 授权成功后页面会跳转到 `{oauth_redirect}`；\n3. 复制跳转后地址里的 **authCode**（`authCode=` 后面那一串），下一步填入。\n\n{oauth_qr_markdown}\n\n二维码显示不出来时，把这个地址发到手机上用微信打开：\n`{oauth_url}`",
+        "data": {}
+      },
       "account": {
-        "title": "填写用户号",
-        "description": "用户号为账单缴费网址最后一段，例如 .../business/pay/owe/ZS0105/16XXXXX 中的 16XXXXX。",
+        "title": "填写户号与授权码",
+        "description": "户号是账单缴费网址的最后一段，例如 .../ZS0105/**1700075442** 里的 1700075442。\n\n授权码是上一步跳转地址里 `authCode=` 后面的内容，有效期约 5 分钟。\n\n{error_detail}",
         "data": {
-          "subsCode": "用户号 (subsCode)",
+          "subsCode": "户号 (subsCode)",
+          "auth_code": "授权码 (authCode)",
           "updatetime": "刷新间隔（分钟）",
           "flaresolverr_url": "FlareSolverr 地址（可选）"
+        }
+      },
+      "reauth_confirm": {
+        "title": "重新授权（1/2）：微信扫码",
+        "description": "登录态已失效，需要重新授权户号 {subs_code}。\n\n请用**手机微信**扫描下面的二维码，授权后页面会跳转到 `{oauth_redirect}`，复制地址里的 authCode 填到下一步。\n\n{oauth_qr_markdown}\n\n二维码显示不出来时，把这个地址发到手机上用微信打开：\n`{oauth_url}`",
+        "data": {}
+      },
+      "reauth_token": {
+        "title": "重新授权（2/2）：填写授权码",
+        "description": "把上一步跳转地址里 `authCode=` 后面那一串粘贴进来。\n\n{oauth_qr_markdown}",
+        "data": {
+          "auth_code": "授权码 (authCode)"
         }
       }
     },
     "error": {
       "invalid_org": "未找到所选分公司，请重新选择",
-      "cannot_connect": "无法连接到港华燃气服务，请检查网络或 FlareSolverr"
+      "auth_failed": "授权失败：授权码无效或已过期（有效期约 5 分钟），请重新扫码再试",
+      "auth_code_required": "请填写 authCode"
     },
     "abort": {
       "no_orgs": "内置的分公司列表（orglist.json）读取失败，请重新安装集成",
-      "already_configured": "该分公司下的这个用户号已经配置过了"
+      "already_configured": "该分公司下的这个户号已经配置过了",
+      "oauth_url_failed": "获取微信授权地址失败，请检查网络后重试",
+      "reauth_successful": "重新授权成功"
     }
   },
   "options": {
@@ -33,6 +54,7 @@
         "title": "港华燃气选项",
         "data": {
           "updatetime": "刷新间隔（分钟）",
+          "token_refresh_interval": "令牌保活间隔（秒）",
           "flaresolverr_url": "FlareSolverr 地址（可选）"
         }
       }

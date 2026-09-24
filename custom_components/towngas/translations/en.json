@@ -8,23 +8,44 @@
           "org_code": "Towngas branch"
         }
       },
+      "oauth": {
+        "title": "WeChat authorization",
+        "description": "Reading the account balance requires a signed-in session. This integration uses the official Towngas WeChat authorization and never stores your password.\n\n1. Scan the QR code below with **WeChat on your phone** (opening it in a desktop browser is blocked by WeChat);\n2. After authorizing, the page redirects to `{oauth_redirect}`;\n3. Copy the **authCode** value from the redirect URL and paste it in the next step.\n\n{oauth_qr_markdown}\n\nIf the QR code does not render, open this URL with WeChat on your phone:\n`{oauth_url}`",
+        "data": {}
+      },
       "account": {
-        "title": "Account details",
-        "description": "The subscriber number (subsCode) is the last part of the billing URL, for example 16XXXXX in .../business/pay/owe/ZS0105/16XXXXX.",
+        "title": "Subscriber number and authCode",
+        "description": "The subscriber number is the last part of the billing URL, for example 1700075442 in .../ZS0105/**1700075442**.\n\nThe authCode is the value after `authCode=` in the redirect URL and is valid for about 5 minutes.\n\n{error_detail}",
         "data": {
           "subsCode": "Subscriber number (subsCode)",
+          "auth_code": "authCode",
           "updatetime": "Update interval (minutes)",
           "flaresolverr_url": "FlareSolverr URL (optional)"
+        }
+      },
+      "reauth_confirm": {
+        "title": "Re-authorize (1/2): scan with WeChat",
+        "description": "The session for subscriber {subs_code} has expired.\n\nScan the QR code below with **WeChat on your phone**; after authorizing, the page redirects to `{oauth_redirect}`. Copy the authCode into the next step.\n\n{oauth_qr_markdown}\n\nIf the QR code does not render, open this URL with WeChat on your phone:\n`{oauth_url}`",
+        "data": {}
+      },
+      "reauth_token": {
+        "title": "Re-authorize (2/2): authCode",
+        "description": "Paste the value after `authCode=` from the redirect URL.\n\n{oauth_qr_markdown}",
+        "data": {
+          "auth_code": "authCode"
         }
       }
     },
     "error": {
       "invalid_org": "The selected branch was not found, please pick again",
-      "cannot_connect": "Cannot reach the Towngas service, check the network or FlareSolverr"
+      "auth_failed": "Authorization failed: the authCode is invalid or expired (about 5 minutes), please scan again",
+      "auth_code_required": "Please provide the authCode"
     },
     "abort": {
       "no_orgs": "Bundled branch list (orglist.json) could not be loaded, please reinstall the integration",
-      "already_configured": "This subscriber number is already configured for this branch"
+      "already_configured": "This subscriber number is already configured for this branch",
+      "oauth_url_failed": "Could not fetch the WeChat authorization URL, check the network and retry",
+      "reauth_successful": "Re-authorization successful"
     }
   },
   "options": {
@@ -33,6 +54,7 @@
         "title": "Towngas options",
         "data": {
           "updatetime": "Update interval (minutes)",
+          "token_refresh_interval": "Token keepalive interval (seconds)",
           "flaresolverr_url": "FlareSolverr URL (optional)"
         }
       }

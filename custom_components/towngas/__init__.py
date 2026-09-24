@@ -15,8 +15,8 @@ PLATFORMS: list[str] = ["sensor"]
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Set up Towngas from a config entry."""
-    # 选项(刷新间隔/FlareSolverr 地址)变更后重载，否则要重启 HA 才生效
-    entry.async_on_unload(entry.add_update_listener(_async_update_listener))
+    # 注意：只在这里做平台转发。选项变更的重载监听器在 sensor.py 里注册——
+    # 令牌刷新会写回 entry.data，那里需要「仅选项变化才重载」的判断，否则会循环重载。
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
     return True
 
@@ -24,8 +24,3 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Unload a config entry."""
     return await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
-
-
-async def _async_update_listener(hass: HomeAssistant, entry: ConfigEntry) -> None:
-    """Reload the config entry when its options change."""
-    await hass.config_entries.async_reload(entry.entry_id)
