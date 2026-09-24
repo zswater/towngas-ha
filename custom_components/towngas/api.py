@@ -36,6 +36,7 @@ from .const import (
     OAUTH_REDIRECT_URI,
     RESULT_CODE_REFRESH_TOKEN_INVALID,
     RESULT_CODE_TOKEN_EXPIRED,
+    RESULT_CODE_TOKEN_MISSING,
     SIGN_SALT,
     TOKEN_EXPIRY_MARGIN,
     VCC_CBS_BASE,
@@ -265,8 +266,10 @@ class TowngasApi:
         data = self._decode_json(status, content_type, text)
 
         code = str(data.get("resultCode") or data.get("code") or "")
-        if code == RESULT_CODE_TOKEN_EXPIRED:
-            raise TowngasAuthError(f"access_token 已失效：{data.get('resultMsg')}")
+        if code in (RESULT_CODE_TOKEN_EXPIRED, RESULT_CODE_TOKEN_MISSING):
+            raise TowngasAuthError(
+                f"access_token 未被接受（resultCode={code}）：{data.get('resultMsg')}"
+            )
 
         datas = data.get("datas")
         if not isinstance(datas, dict):
@@ -339,6 +342,9 @@ class TowngasApi:
 
     async def _direct_request(self, url: str) -> tuple[int, str, str]:
         headers = dict(BROWSER_HEADERS, Referer=f"{self._host}/")
+        if self.access_token:
+            # 账号数据网关靠这个头认证，缺了会返回 40058「token不能为空」
+            headers["Authorization"] = f"Bearer {self.access_token}"
         async with self._session.get(url, headers=headers) as resp:
             text = await resp.text()
             return resp.status, resp.headers.get("Content-Type", ""), text
@@ -365,6 +371,9 @@ class TowngasApi:
             "url": url,
             "maxTimeout": 60000,
         }
+        if self.access_token:
+            # 部分 FlareSolverr 版本支持自定义请求头，不支持时会被忽略
+            payload["headers"] = {"Authorization": f"Bearer {self.access_token}"}
         if self._flaresolverr_session_id:
             payload["session"] = self._flaresolverr_session_id
 
