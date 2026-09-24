@@ -1,0 +1,48 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Pick your Towngas branch",
+        "description": "Select the Towngas branch shown in your billing URL, for example .../business/pay/owe/ZS0105/16XXXXX.",
+        "data": {
+          "org_code": "Towngas branch"
+        }
+      },
+      "account": {
+        "title": "Account details",
+        "description": "The subscriber number (subsCode) is the last part of the billing URL, for example 16XXXXX in .../business/pay/owe/ZS0105/16XXXXX.",
+        "data": {
+          "subsCode": "Subscriber number (subsCode)",
+          "updatetime": "Update interval (minutes)",
+          "flaresolverr_url": "FlareSolverr URL (optional)"
+        }
+      }
+    },
+    "error": {
+      "invalid_org": "The selected branch was not found, please pick again",
+      "cannot_connect": "Cannot reach the Towngas service, check the network or FlareSolverr"
+    },
+    "abort": {
+      "no_orgs": "Bundled branch list (orglist.json) could not be loaded, please reinstall the integration",
+      "already_configured": "This subscriber number is already configured for this branch"
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Towngas options",
+        "data": {
+          "updatetime": "Update interval (minutes)",
+          "flaresolverr_url": "FlareSolverr URL (optional)"
+        }
+      }
+    }
+  },
+  "entity": {
+    "sensor": {
+      "balance": {
+        "name": "Gas balance"
+      }
+    }
+  }
+}

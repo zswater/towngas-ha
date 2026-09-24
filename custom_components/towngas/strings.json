@@ -1,0 +1,48 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "选择燃气分公司",
+        "description": "请选择你的港华燃气分公司。用户可以对照账单缴费网址中的区域码，例如 .../business/pay/owe/ZS0105/16XXXXX。",
+        "data": {
+          "org_code": "燃气分公司"
+        }
+      },
+      "account": {
+        "title": "填写用户号",
+        "description": "用户号为账单缴费网址最后一段，例如 .../business/pay/owe/ZS0105/16XXXXX 中的 16XXXXX。",
+        "data": {
+          "subsCode": "用户号 (subsCode)",
+          "updatetime": "刷新间隔（分钟）",
+          "flaresolverr_url": "FlareSolverr 地址（可选）"
+        }
+      }
+    },
+    "error": {
+      "invalid_org": "未找到所选分公司，请重新选择",
+      "cannot_connect": "无法连接到港华燃气服务，请检查网络或 FlareSolverr"
+    },
+    "abort": {
+      "no_orgs": "内置的分公司列表（orglist.json）读取失败，请重新安装集成",
+      "already_configured": "该分公司下的这个用户号已经配置过了"
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "港华燃气选项",
+        "data": {
+          "updatetime": "刷新间隔（分钟）",
+          "flaresolverr_url": "FlareSolverr 地址（可选）"
+        }
+      }
+    }
+  },
+  "entity": {
+    "sensor": {
+      "balance": {
+        "name": "燃气余额"
+      }
+    }
+  }
+}

@@ -1,13 +1,11 @@
 """Sensor platform for Towngas integration."""
 from __future__ import annotations
 
-import logging
 import asyncio
+import json
+import logging
 import re
 from datetime import datetime, timedelta
-import async_timeout
-import aiohttp
-import json
 from typing import Any
 from urllib.parse import urlencode
 
@@ -18,31 +16,35 @@ from homeassistant.components.sensor import (
 )
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
+from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import (
+    CoordinatorEntity,
     DataUpdateCoordinator,
     UpdateFailed,
 )
 from homeassistant.util import dt as dt_util
 
 from .const import (
+    CONF_FLARESOLVERR_URL,
     CONF_HOST,
     CONF_ORG_CODE,
     CONF_SUBS_CODE,
     CONF_UPDATE_INTERVAL,
-    CONF_FLARESOLVERR_URL,
     DEFAULT_UPDATE_INTERVAL,
     DOMAIN,
 )
 
 _LOGGER = logging.getLogger(__name__)
 
+DIRECT_TIMEOUT = 20
+FLARESOLVERR_TIMEOUT = 75
+
 # 请求头模板
 BROWSER_HEADERS = {
     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/133.0.0.0 Safari/537.36",
     "Accept": "application/json, text/plain, */*",
     "Accept-Language": "zh-CN,zh;q=0.9,en;q=0.8",
-    "Accept-Encoding": "gzip, deflate, br",
     "Referer": "{host}/",
     "X-Requested-With": "XMLHttpRequest",
 }
@@ -61,21 +63,21 @@ async def async_setup_entry(
         CONF_UPDATE_INTERVAL,
         config.get(CONF_UPDATE_INTERVAL, DEFAULT_UPDATE_INTERVAL),
     )
-    flaresolverr_url = options.get(
-        CONF_FLARESOLVERR_URL,
-        config.get(CONF_FLARESOLVERR_URL)
+    flaresolverr_url = options.get(CONF_FLARESOLVERR_URL) or config.get(
+        CONF_FLARESOLVERR_URL
     )
 
     coordinator = TowngasCoordinator(
         hass,
+        entry,
         config[CONF_SUBS_CODE],
         config[CONF_ORG_CODE],
         config[CONF_HOST],
         update_interval,
         flaresolverr_url,
     )
-
-    await coordinator.async_refresh()
+    # 首次拉取失败时让 HA 进入重试，而不是留下一个永远不可用的实体
+    await coordinator.async_config_entry_first_refresh()
     async_add_entities([TowngasSensor(coordinator, config, entry.entry_id)])
 
 
@@ -85,11 +87,12 @@ class TowngasCoordinator(DataUpdateCoordinator[dict[str, Any]]):
     def __init__(
         self,
         hass: HomeAssistant,
+        entry: ConfigEntry,
         subs_code: str,
         org_code: str,
         host: str,
         update_interval: int,
-        flaresolverr_url: str,
+        flaresolverr_url: str | None,
     ) -> None:
         self._subs_code = subs_code
         self._org_code = org_code
@@ -105,52 +108,64 @@ class TowngasCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         super().__init__(
             hass,
             _LOGGER,
+            config_entry=entry,
             name=f"{DOMAIN}_{self._subs_code}_{self._org_code}",
             update_interval=timedelta(minutes=update_interval),
         )
 
-    async def _direct_request(self) -> tuple[int, str, str]:
-        """轻量模式：直接使用 aiohttp 请求 API。"""
-        params = {
+    @property
+    def using_flaresolverr(self) -> bool:
+        """Return True when requests go through FlareSolverr."""
+        return self._use_flaresolverr
+
+    def _params(self) -> dict[str, str]:
+        return {
             "token": "0",
             "scene": "2003",
             "subsCode": self._subs_code,
             "orgCode": self._org_code,
         }
+
+    def _headers(self) -> dict[str, str]:
         headers = BROWSER_HEADERS.copy()
         headers["Referer"] = headers["Referer"].format(host=self._host)
+        return headers
 
-        async with aiohttp.ClientSession() as session:
-            async with session.get(
-                self._api_url,
-                params=params,
-                headers=headers,
-                ssl=False,
-            ) as resp:
-                text = await resp.text()
-                return resp.status, resp.headers.get("Content-Type", ""), text
+    async def _direct_request(self) -> tuple[int, str, str]:
+        """轻量模式：直接使用 HA 共享会话请求 API。"""
+        session = async_get_clientsession(self.hass)
+        async with session.get(
+            self._api_url,
+            params=self._params(),
+            headers=self._headers(),
+        ) as resp:
+            text = await resp.text()
+            return resp.status, resp.headers.get("Content-Type", ""), text
 
     async def _flaresolverr_request(self) -> tuple[int, str, str]:
         """FlareSolverr 模式：通过无头浏览器代理请求，并自动提取 <pre> 标签内的 JSON。"""
-        params = {
-            "token": "0",
-            "scene": "2003",
-            "subsCode": self._subs_code,
-            "orgCode": self._org_code,
-        }
-        full_url = f"{self._api_url}?{urlencode(params)}"
+        if not self._flaresolverr_url:
+            raise UpdateFailed("FlareSolverr URL is not configured")
+
+        full_url = f"{self._api_url}?{urlencode(self._params())}"
+        session = async_get_clientsession(self.hass)
 
         # 如果没有会话ID，则创建一个新的会话
         if self._flaresolverr_session_id is None:
             create_payload = {"cmd": "sessions.create"}
-            async with aiohttp.ClientSession() as session:
-                async with session.post(self._flaresolverr_url, json=create_payload, timeout=30) as resp:
-                    result = await resp.json()
-                    if result.get("status") == "ok":
-                        self._flaresolverr_session_id = result.get("session")
-                        _LOGGER.info("Created FlareSolverr session: %s", self._flaresolverr_session_id)
-                    else:
-                        _LOGGER.warning("Failed to create FlareSolverr session, using sessionless mode")
+            async with session.post(
+                self._flaresolverr_url, json=create_payload, timeout=30
+            ) as resp:
+                result = await resp.json()
+                if result.get("status") == "ok":
+                    self._flaresolverr_session_id = result.get("session")
+                    _LOGGER.info(
+                        "Created FlareSolverr session: %s", self._flaresolverr_session_id
+                    )
+                else:
+                    _LOGGER.warning(
+                        "Failed to create FlareSolverr session, using sessionless mode"
+                    )
 
         payload = {
             "cmd": "request.get",
@@ -160,87 +175,91 @@ class TowngasCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         if self._flaresolverr_session_id:
             payload["session"] = self._flaresolverr_session_id
 
-        async with aiohttp.ClientSession() as session:
-            async with session.post(self._flaresolverr_url, json=payload, timeout=70) as resp:
-                result = await resp.json()
-                if result.get("status") != "ok":
-                    error_msg = result.get("message", "Unknown error")
-                    raise UpdateFailed(f"FlareSolverr error: {error_msg}")
+        async with session.post(
+            self._flaresolverr_url, json=payload, timeout=70
+        ) as resp:
+            result = await resp.json()
+            if result.get("status") != "ok":
+                error_msg = result.get("message", "Unknown error")
+                raise UpdateFailed(f"FlareSolverr error: {error_msg}")
 
-                solution = result.get("solution", {})
-                status_code = solution.get("status", 0)
-                content_type = solution.get("headers", {}).get("Content-Type", "")
-                response_text = solution.get("response", "")
+            solution = result.get("solution", {})
+            status_code = solution.get("status", 0)
+            content_type = solution.get("headers", {}).get("Content-Type", "")
+            response_text = solution.get("response", "")
 
-                # 关键修复：如果响应是 HTML 但包含 <pre> 标签内的 JSON，提取出来
-                if "text/html" in content_type and "<pre>" in response_text:
-                    match = re.search(r"<pre>(.*?)</pre>", response_text, re.DOTALL)
-                    if match:
-                        cleaned = match.group(1).strip()
-                        _LOGGER.debug("Extracted JSON from HTML <pre>: %s", cleaned[:200])
-                        # 覆盖原始响应，以便后续解析
-                        response_text = cleaned
-                        # 同时强制修改 content_type 为 application/json，避免后续检查失败
-                        content_type = "application/json"
+            # 如果响应是 HTML 但包含 <pre> 标签内的 JSON，提取出来
+            if "text/html" in content_type and "<pre>" in response_text:
+                match = re.search(r"<pre>(.*?)</pre>", response_text, re.DOTALL)
+                if match:
+                    cleaned = match.group(1).strip()
+                    _LOGGER.debug("Extracted JSON from HTML <pre>: %s", cleaned[:200])
+                    # 覆盖原始响应，以便后续解析
+                    response_text = cleaned
+                    # 同时强制修改 content_type 为 application/json，避免后续检查失败
+                    content_type = "application/json"
 
-                _LOGGER.debug(
-                    "FlareSolverr response: status=%s, content_type=%s, response_len=%d",
-                    status_code, content_type, len(response_text)
-                )
-                return status_code, content_type, response_text
+            _LOGGER.debug(
+                "FlareSolverr response: status=%s, content_type=%s, response_len=%d",
+                status_code,
+                content_type,
+                len(response_text),
+            )
+            return status_code, content_type, response_text
 
     async def _destroy_flaresolverr_session(self) -> None:
         """主动销毁 FlareSolverr 会话，释放浏览器资源。"""
         if self._flaresolverr_session_id:
-            destroy_payload = {"cmd": "sessions.destroy", "session": self._flaresolverr_session_id}
+            session_id = self._flaresolverr_session_id
+            self._flaresolverr_session_id = None
+            destroy_payload = {"cmd": "sessions.destroy", "session": session_id}
             try:
-                async with aiohttp.ClientSession() as session:
-                    async with session.post(self._flaresolverr_url, json=destroy_payload, timeout=10) as resp:
-                        _LOGGER.debug("Destroyed FlareSolverr session: %s", self._flaresolverr_session_id)
-            except Exception as e:
-                _LOGGER.warning("Failed to destroy FlareSolverr session: %s", e)
-            finally:
-                self._flaresolverr_session_id = None
+                session = async_get_clientsession(self.hass)
+                async with session.post(
+                    self._flaresolverr_url, json=destroy_payload, timeout=10
+                ):
+                    _LOGGER.debug("Destroyed FlareSolverr session: %s", session_id)
+            except Exception as err:  # noqa: BLE001
+                _LOGGER.warning("Failed to destroy FlareSolverr session: %s", err)
 
     async def _async_update_data(self) -> dict[str, Any]:
         """获取燃气余额数据，自动选择请求模式。"""
-        # 如果已经切换到 FlareSolverr 模式，直接使用
-        if self._use_flaresolverr:
+        # 轻量模式：先尝试直接请求，若检测到反爬则切换模式后重试一次
+        if not self._use_flaresolverr:
             try:
-                async with async_timeout.timeout(70):
-                    status, content_type, text = await self._flaresolverr_request()
-                    return self._parse_response(status, content_type, text)
-            except Exception as err:
-                # 如果是会话失效，尝试重置会话
-                if "session" in str(err).lower():
-                    await self._destroy_flaresolverr_session()
-                raise UpdateFailed(f"FlareSolverr request failed: {err}")
+                async with asyncio.timeout(DIRECT_TIMEOUT):
+                    status, content_type, text = await self._direct_request()
 
-        # 轻量模式：先尝试直接请求，若检测到反爬则切换模式并重试
-        try:
-            async with async_timeout.timeout(20):
-                status, content_type, text = await self._direct_request()
-
-                # 检测是否为反爬页面 (HTML 或 202/403)
+                # 检测是否为反爬页面 (HTML 或 202/403/429)
                 if status in (202, 403, 429) or "html" in content_type:
-                    _LOGGER.info("⚠️ Anti-bot detected (status=%s), switching to FlareSolverr mode", status)
+                    _LOGGER.info(
+                        "⚠️ Anti-bot detected (status=%s), switching to FlareSolverr mode",
+                        status,
+                    )
                     self._use_flaresolverr = True
-                    # 立即用 FlareSolverr 重试
-                    return await self._async_update_data()
+                else:
+                    return self._parse_response(status, content_type, text)
+            except TimeoutError:
+                _LOGGER.warning("Direct request timeout, switching to FlareSolverr")
+                self._use_flaresolverr = True
+            except UpdateFailed:
+                raise
+            except Exception as err:  # noqa: BLE001
+                _LOGGER.warning(
+                    "Direct request error, switching to FlareSolverr: %s", err
+                )
+                self._use_flaresolverr = True
 
-                # 正常响应，直接解析
-                return self._parse_response(status, content_type, text)
+        try:
+            async with asyncio.timeout(FLARESOLVERR_TIMEOUT):
+                status, content_type, text = await self._flaresolverr_request()
+        except Exception as err:  # noqa: BLE001
+            # 如果是会话失效，重置会话以便下次重建
+            if "session" in str(err).lower():
+                await self._destroy_flaresolverr_session()
+            raise UpdateFailed(f"FlareSolverr request failed: {err}") from err
 
-        except asyncio.TimeoutError:
-            _LOGGER.error("Direct request timeout, switching to FlareSolverr")
-            self._use_flaresolverr = True
-            return await self._async_update_data()
-        except UpdateFailed:
-            raise
-        except Exception as err:
-            _LOGGER.exception("Direct request error, switching to FlareSolverr: %s", err)
-            self._use_flaresolverr = True
-            return await self._async_update_data()
+        return self._parse_response(status, content_type, text)
 
     def _parse_response(self, status: int, content_type: str, text: str) -> dict[str, Any]:
         """解析 API 响应，提取余额。"""
@@ -249,18 +268,18 @@ class TowngasCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             raise UpdateFailed(f"HTTP error status {status}")
 
         # 处理非 JSON 内容：尝试从 HTML 中提取 JSON 片段
-        original_text = text
         if "json" not in content_type:
-            # 尝试从 HTML 中找到 {} 或 [] 包裹的内容（简单启发式）
-            # 但更精确的是之前的 <pre> 提取，这里作为后备
             match = re.search(r"(\{.*\}|\[.*\])", text, re.DOTALL)
             if match:
                 text = match.group(1)
                 _LOGGER.debug("Extracted JSON fragment from non-JSON response")
             else:
-                # 如果无法提取，记录错误
-                _LOGGER.error("Cannot extract JSON from response, preview: %s", original_text[:300])
-                raise UpdateFailed(f"Response does not contain valid JSON (content-type={content_type})")
+                _LOGGER.error(
+                    "Cannot extract JSON from response, preview: %s", text[:300]
+                )
+                raise UpdateFailed(
+                    f"Response does not contain valid JSON (content-type={content_type})"
+                )
 
         # 处理 JSONP
         if text.startswith("callback(") and text.endswith(")"):
@@ -270,22 +289,36 @@ class TowngasCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             data = json.loads(text)
         except json.JSONDecodeError as err:
             _LOGGER.error("JSON decode error: %s, preview: %s", err, text[:300])
-            raise UpdateFailed(f"Invalid JSON response: {err}")
+            raise UpdateFailed(f"Invalid JSON response: {err}") from err
 
         if not isinstance(data, dict):
             raise UpdateFailed(f"Response is not a JSON object, type={type(data)}")
 
-        if "code" in data and data["code"] != 0:
-            error_msg = data.get("msg", data.get("message", "Unknown error"))
-            raise UpdateFailed(f"API error: {error_msg} (code={data['code']})")
+        # 兼容两种信封：{"resultCode": "20001", "resultMsg": "..."}（现行接口）
+        # 与旧版 {"code": 0, "msg": "..."}
+        balance_data = data.get("data") or data.get("resultData") or data
+        if not isinstance(balance_data, dict) or "savingSum" not in balance_data:
+            code = data.get("resultCode", data.get("code"))
+            message = (
+                data.get("resultMsg")
+                or data.get("msg")
+                or data.get("message")
+            )
+            if message:
+                raise UpdateFailed(f"API error: {message} (code={code})")
+            _LOGGER.error("Response keys: %s", list(data))
+            raise UpdateFailed(f"Missing 'savingSum' in response. Keys: {list(data)}")
 
-        balance_data = data.get("data") if "data" in data else data
-        if "savingSum" not in balance_data:
-            _LOGGER.error("Response keys: %s", list(balance_data.keys()))
-            raise UpdateFailed(f"Missing 'savingSum' in response. Keys: {list(balance_data.keys())}")
+        try:
+            saving_sum = float(balance_data["savingSum"])
+        except (TypeError, ValueError) as err:
+            raise UpdateFailed(
+                f"savingSum is not a number: {balance_data['savingSum']!r}"
+            ) from err
 
+        balance_data["savingSum"] = saving_sum
         self.last_updated = dt_util.utcnow()
-        _LOGGER.info("✅ Fetched balance: %.2f for %s", balance_data["savingSum"], self._subs_code)
+        _LOGGER.debug("✅ Fetched balance: %.2f for %s", saving_sum, self._subs_code)
         return balance_data
 
     async def async_shutdown(self) -> None:
@@ -294,7 +327,7 @@ class TowngasCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         await super().async_shutdown()
 
 
-class TowngasSensor(SensorEntity):
+class TowngasSensor(CoordinatorEntity[TowngasCoordinator], SensorEntity):
     """燃气余额传感器实体。"""
 
     _attr_device_class = SensorDeviceClass.MONETARY
@@ -303,8 +336,10 @@ class TowngasSensor(SensorEntity):
     _attr_icon = "mdi:currency-cny"
     _attr_should_poll = False
 
-    def __init__(self, coordinator: TowngasCoordinator, config: dict, entry_id: str) -> None:
-        self._coordinator = coordinator
+    def __init__(
+        self, coordinator: TowngasCoordinator, config: dict[str, Any], entry_id: str
+    ) -> None:
+        super().__init__(coordinator)
         self._subs_code = config[CONF_SUBS_CODE]
         self._org_code = config[CONF_ORG_CODE]
         self._host = config[CONF_HOST]
@@ -320,31 +355,21 @@ class TowngasSensor(SensorEntity):
         }
 
     @property
-    def available(self) -> bool:
-        return self._coordinator.last_update_success
-
-    @property
     def native_value(self) -> float | None:
-        if self._coordinator.data is None:
+        if not self.coordinator.data:
             return None
-        return self._coordinator.data.get("savingSum")
+        return self.coordinator.data.get("savingSum")
 
     @property
     def extra_state_attributes(self) -> dict[str, Any] | None:
-        if self._coordinator.data is None:
+        if not self.coordinator.data:
             return None
-        attrs = {
+        attrs: dict[str, Any] = {
             "subs_code": self._subs_code,
             "org_code": self._org_code,
             "host": self._host,
-            "using_flaresolverr": self._coordinator._use_flaresolverr,
+            "using_flaresolverr": self.coordinator.using_flaresolverr,
         }
-        if self._coordinator.last_updated:
-            attrs["last_update"] = self._coordinator.last_updated.isoformat()
+        if self.coordinator.last_updated:
+            attrs["last_update"] = self.coordinator.last_updated.isoformat()
         return attrs
-
-    async def async_added_to_hass(self) -> None:
-        await super().async_added_to_hass()
-        self.async_on_remove(
-            self._coordinator.async_add_listener(self.async_write_ha_state)
-        )

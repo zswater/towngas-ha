@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import logging
+
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 
@@ -9,13 +10,22 @@ from .const import DOMAIN
 
 _LOGGER = logging.getLogger(__name__)
 
+PLATFORMS: list[str] = ["sensor"]
+
+
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Set up Towngas from a config entry."""
-    # 替换为新的 async_forward_entry_setups 方法
-    await hass.config_entries.async_forward_entry_setups(entry, ["sensor"])
+    # 选项(刷新间隔/FlareSolverr 地址)变更后重载，否则要重启 HA 才生效
+    entry.async_on_unload(entry.add_update_listener(_async_update_listener))
+    await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
     return True
+
 
 async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Unload a config entry."""
-    # 保持原样，async_forward_entry_unload 仍然是正确的方法.
-    return await hass.config_entries.async_forward_entry_unload(entry, "sensor")
+    return await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
+
+
+async def _async_update_listener(hass: HomeAssistant, entry: ConfigEntry) -> None:
+    """Reload the config entry when its options change."""
+    await hass.config_entries.async_reload(entry.entry_id)
