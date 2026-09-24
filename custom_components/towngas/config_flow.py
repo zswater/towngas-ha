@@ -57,8 +57,7 @@ FIELD_QR = (
     "（也可以复制本框里的链接，发到手机微信里点开）"
 )
 FIELD_SUBS_CODE = (
-    "② 户号 subsCode：账单缴费网址最后一段，"
-    "例如 .../ZS0105/1700075442 就填 1700075442"
+    "② 户号 subsCode：账单缴费网址最后一段，例如 .../XXXXXX/16XXXXX 就填 16XXXXX"
 )
 FIELD_SUBS_ID = (
     "③ 气户标识 subsId：浏览器登录 www.towngasvcc.com/?login=true（手机号+短信验证码）后，"

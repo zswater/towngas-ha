@@ -83,7 +83,7 @@ def sign_params(params: dict[str, Any]) -> str:
 
 
 def client_id_for_org(org_code: str) -> str:
-    """分公司代码 -> OAuth clientid，例如 ZS0105 -> pe92a8wechatZS0105。"""
+    """分公司代码 -> OAuth clientid，例如 XXXXXX -> pe92a8wechat<分公司代码>。"""
     return CLIENT_ID_PREFIX + org_code.split("_")[-1]
 
 
