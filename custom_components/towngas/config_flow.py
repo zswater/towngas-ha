@@ -1,7 +1,11 @@
 """Config flow for Towngas integration.
 
-流程：选分公司 → 微信扫码授权（拿 authCode）→ 填户号 + authCode → 校验并创建。
-账号取数需要令牌，服务端已不接受匿名的 token=0，所以授权是必要步骤。
+流程：选分公司 → 扫码授权 + 填户号信息（同一个表单）。
+
+设计要点：步骤的标题/描述来自前端按 step_id 查翻译（`component.towngas.config.step.<id>.description`）。
+如果这一步的翻译没被前端加载（例如浏览器缓存了旧的翻译包），**没有表单字段的步骤就会显示成空白窗口**。
+所以这里不再使用「空 schema + 只有描述」的步骤：二维码放在有字段的表单描述里，
+授权链接同时作为一个可复制的文本框默认值，保证任何情况下界面上都有可见内容。
 """
 from __future__ import annotations
 
@@ -42,6 +46,9 @@ _LOGGER = logging.getLogger(__name__)
 
 ORG_LIST_FILE = Path(__file__).with_name("orglist.json")
 
+# 授权链接的展示字段名（提交时忽略它的值）
+FIELD_OAUTH_URL = "oauth_url"
+
 
 def load_org_list() -> list[dict[str, Any]]:
     """从内置 JSON 读取分公司列表。"""
@@ -72,7 +79,7 @@ def render_qr_markdown(data: str) -> str:
 
 def _parse_auth_code(raw: str) -> str:
     """允许用户直接粘贴回调地址，自动截出 authCode。"""
-    value = raw.strip()
+    value = (raw or "").strip()
     for sep in ("authCode=", "auth_code=", "code="):
         if sep in value:
             return value.split(sep, 1)[1].split("&", 1)[0].strip()
@@ -104,10 +111,6 @@ class TowngasConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             for org in self.org_list
         }
 
-    def _qr_markdown(self) -> str:
-        """把微信授权地址渲染成 Markdown 内联图片。"""
-        return render_qr_markdown(self._oauth_url)
-
     def _new_api(self, *, flaresolverr_url: str | None = None) -> TowngasApi:
         org = self.selected_org or {}
         return TowngasApi(
@@ -118,6 +121,28 @@ class TowngasConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             subs_id=self._subs_id or None,
             flaresolverr_url=flaresolverr_url,
         )
+
+    async def _async_ensure_oauth_url(self) -> str | None:
+        """取一次微信授权地址（同一流程内复用；失败返回 None）。"""
+        if self._oauth_url:
+            return self._oauth_url
+        try:
+            self._oauth_url = await self._new_api().async_get_oauth_url()
+        except (TowngasApiError, TowngasAuthError) as err:
+            _LOGGER.error("获取微信授权地址失败：%s", err)
+            return None
+        return self._oauth_url
+
+    def _qr_placeholders(self) -> dict[str, str]:
+        """描述里的二维码/链接占位符。"""
+        return {
+            "oauth_qr_markdown": render_qr_markdown(self._oauth_url),
+            "oauth_url": self._oauth_url,
+            "oauth_redirect": OAUTH_REDIRECT_URI,
+            "client_id": client_id_for_org((self.selected_org or {}).get("orgCode", "")),
+            "subs_code": self._subs_code,
+            "error_detail": "",
+        }
 
     # ------------------------------------------------------------------
     #  配置流程
@@ -143,7 +168,7 @@ class TowngasConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 None,
             )
             if self.selected_org is not None:
-                return await self.async_step_oauth()
+                return await self.async_step_account()
             errors["base"] = "invalid_org"
 
         return self.async_show_form(
@@ -154,74 +179,65 @@ class TowngasConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             errors=errors,
         )
 
-    async def async_step_oauth(
-        self, user_input: dict[str, Any] | None = None
-    ) -> FlowResult:
-        """第二步：微信扫码授权。"""
-        if user_input is not None:
-            return await self.async_step_account()
-
-        if not self._oauth_url:
-            api = self._new_api()
-            try:
-                self._oauth_url = await api.async_get_oauth_url()
-            except (TowngasApiError, TowngasAuthError) as err:
-                _LOGGER.error("获取微信授权地址失败：%s", err)
-                return self.async_abort(reason="oauth_url_failed")
-
-        return self.async_show_form(
-            step_id="oauth",
-            data_schema=vol.Schema({}),
-            description_placeholders={
-                "oauth_qr_markdown": self._qr_markdown(),
-                "oauth_url": self._oauth_url,
-                "oauth_redirect": OAUTH_REDIRECT_URI,
-                "client_id": client_id_for_org(self.selected_org["orgCode"]),
-            },
+    def _account_schema(self) -> vol.Schema:
+        """带二维码链接的账号表单（有字段，界面不会空白）。"""
+        return vol.Schema(
+            {
+                # 展示用：默认值就是微信授权地址，方便复制到手机微信里打开
+                vol.Optional(FIELD_OAUTH_URL, default=self._oauth_url): str,
+                vol.Required(CONF_SUBS_CODE): vol.All(
+                    str, vol.Strip, vol.Length(min=1)
+                ),
+                vol.Required(CONF_SUBS_ID): vol.All(
+                    str, vol.Strip, vol.Length(min=8)
+                ),
+                vol.Required(CONF_AUTH_CODE): str,
+                vol.Optional(
+                    CONF_UPDATE_INTERVAL, default=DEFAULT_UPDATE_INTERVAL
+                ): vol.All(vol.Coerce(int), vol.Range(min=5)),
+                vol.Optional(CONF_FLARESOLVERR_URL): str,
+            }
         )
 
     async def async_step_account(
         self, user_input: dict[str, Any] | None = None
     ) -> FlowResult:
-        """第三步：填户号 + 授权码，换取令牌。"""
+        """第二步：扫码授权 + 填户号信息。"""
+        errors: dict[str, str] = {}
+        placeholders = self._qr_placeholders()
+
         if self.selected_org is None:
             return self.async_abort(reason="no_orgs")
 
-        errors: dict[str, str] = {}
-        description_placeholders: dict[str, str] = {
-            "oauth_qr_markdown": self._qr_markdown(),
-            "oauth_redirect": OAUTH_REDIRECT_URI,
-            "error_detail": "",
-        }
+        if await self._async_ensure_oauth_url() is None:
+            errors["base"] = "oauth_url_failed"
+            placeholders["error_detail"] = "（获取微信授权地址失败，请检查网络后重试）"
+        else:
+            placeholders["oauth_qr_markdown"] = render_qr_markdown(self._oauth_url)
 
-        if user_input is not None:
+        if user_input is not None and not errors:
             self._subs_code = user_input[CONF_SUBS_CODE]
             self._subs_id = user_input[CONF_SUBS_ID]
             auth_code = _parse_auth_code(user_input.get(CONF_AUTH_CODE, ""))
-            api = self._new_api(
-                flaresolverr_url=user_input.get(CONF_FLARESOLVERR_URL)
-            )
+            api = self._new_api(flaresolverr_url=user_input.get(CONF_FLARESOLVERR_URL))
 
-            token_ok = False
             if not auth_code:
                 errors["base"] = "auth_code_required"
             else:
                 try:
                     await api.async_exchange_token(auth_code)
-                    token_ok = True
                 except TowngasApiError as err:
                     _LOGGER.warning("授权码换取令牌失败：%s", err)
                     errors["base"] = "auth_failed"
-                    description_placeholders["error_detail"] = str(err)
+                    placeholders["error_detail"] = f"（{err}）"
 
-            if token_ok:
+            if not errors:
                 # 顺手验证一次取数，失败不阻塞创建（实体状态会显示真实原因）
                 try:
                     await api.async_fetch_data()
                     _LOGGER.info("首次取数校验通过")
                 except Exception as err:  # noqa: BLE001
                     _LOGGER.warning("首次取数校验未通过（仍会创建条目）：%s", err)
-                    description_placeholders["error_detail"] = f"（取数校验未通过：{err}）"
 
                 await self.async_set_unique_id(
                     f"{self._subs_code}_{self.selected_org['orgCode']}"
@@ -247,23 +263,9 @@ class TowngasConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
         return self.async_show_form(
             step_id="account",
-            data_schema=vol.Schema(
-                {
-                    vol.Required(CONF_SUBS_CODE): vol.All(
-                        str, vol.Strip, vol.Length(min=1)
-                    ),
-                    vol.Required(CONF_SUBS_ID): vol.All(
-                        str, vol.Strip, vol.Length(min=8)
-                    ),
-                    vol.Required(CONF_AUTH_CODE): str,
-                    vol.Optional(
-                        CONF_UPDATE_INTERVAL, default=DEFAULT_UPDATE_INTERVAL
-                    ): vol.All(vol.Coerce(int), vol.Range(min=5)),
-                    vol.Optional(CONF_FLARESOLVERR_URL): str,
-                }
-            ),
+            data_schema=self._account_schema(),
             errors=errors,
-            description_placeholders=description_placeholders,
+            description_placeholders=placeholders,
         )
 
     # ------------------------------------------------------------------
@@ -279,62 +281,54 @@ class TowngasConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         if self.selected_org is None:
             return self.async_abort(reason="no_orgs")
         self._subs_code = entry_data.get(CONF_SUBS_CODE, "")
+        self._subs_id = entry_data.get(CONF_SUBS_ID, "")
         return await self.async_step_reauth_confirm()
 
     async def async_step_reauth_confirm(
         self, user_input: dict[str, Any] | None = None
     ) -> FlowResult:
-        """重新授权第一步：重新扫码。"""
-        if user_input is not None:
-            return await self.async_step_reauth_token()
-
-        self._oauth_url = ""
-        api = self._new_api()
-        try:
-            self._oauth_url = await api.async_get_oauth_url()
-        except Exception:  # noqa: BLE001
-            _LOGGER.exception("重新授权：获取微信授权地址失败")
-            return self.async_abort(reason="oauth_url_failed")
-
-        return self.async_show_form(
-            step_id="reauth_confirm",
-            data_schema=vol.Schema({}),
-            description_placeholders={
-                "oauth_qr_markdown": self._qr_markdown(),
-                "oauth_url": self._oauth_url,
-                "oauth_redirect": OAUTH_REDIRECT_URI,
-                "subs_code": self._subs_code,
-            },
-        )
-
-    async def async_step_reauth_token(
-        self, user_input: dict[str, Any] | None = None
-    ) -> FlowResult:
-        """重新授权第二步：粘贴新的 authCode，更新令牌。"""
+        """重新授权：扫码 + 填新 authCode（同一表单，避免空白窗口）。"""
         errors: dict[str, str] = {}
+        placeholders = self._qr_placeholders()
 
-        if user_input is not None:
+        if await self._async_ensure_oauth_url() is None:
+            errors["base"] = "oauth_url_failed"
+        else:
+            placeholders["oauth_qr_markdown"] = render_qr_markdown(self._oauth_url)
+
+        if user_input is not None and not errors:
             auth_code = _parse_auth_code(user_input.get(CONF_AUTH_CODE, ""))
             api = self._new_api()
-            try:
-                await api.async_exchange_token(auth_code)
-            except TowngasApiError as err:
-                _LOGGER.warning("重新授权失败：%s", err)
-                errors["base"] = "auth_failed"
+            if not auth_code:
+                errors["base"] = "auth_code_required"
             else:
+                try:
+                    await api.async_exchange_token(auth_code)
+                except TowngasApiError as err:
+                    _LOGGER.warning("重新授权失败：%s", err)
+                    errors["base"] = "auth_failed"
+                    placeholders["error_detail"] = f"（{err}）"
+                except TowngasAuthError as err:
+                    _LOGGER.warning("重新授权失败：%s", err)
+                    errors["base"] = "auth_failed"
+                    placeholders["error_detail"] = f"（{err}）"
+
+            if not errors:
                 entry = self._get_reauth_entry()
                 return self.async_update_reload_and_abort(
                     entry, data={**entry.data, **api.token_data()}
                 )
 
         return self.async_show_form(
-            step_id="reauth_token",
-            data_schema=vol.Schema({vol.Required(CONF_AUTH_CODE): str}),
+            step_id="reauth_confirm",
+            data_schema=vol.Schema(
+                {
+                    vol.Optional(FIELD_OAUTH_URL, default=self._oauth_url): str,
+                    vol.Required(CONF_AUTH_CODE): str,
+                }
+            ),
             errors=errors,
-            description_placeholders={
-                "oauth_qr_markdown": self._qr_markdown(),
-                "oauth_redirect": OAUTH_REDIRECT_URI,
-            },
+            description_placeholders=placeholders,
         )
 
     @staticmethod

@@ -8,15 +8,11 @@
           "org_code": "燃气分公司"
         }
       },
-      "oauth": {
-        "title": "微信扫码授权",
-        "description": "查询余额需要登录态，本集成使用港华统一的微信授权，不会保存你的密码。\n\n1. 用**手机微信**扫一扫下面的二维码（在电脑浏览器直接打开会被微信拦截）；\n2. 授权成功后页面会跳转到 `{oauth_redirect}`；\n3. 复制跳转后地址里的 **authCode**（`authCode=` 后面那一串），下一步填入。\n\n{oauth_qr_markdown}\n\n二维码显示不出来时，把这个地址发到手机上用微信打开：\n`{oauth_url}`",
-        "data": {}
-      },
       "account": {
-        "title": "填写户号信息与授权码",
-        "description": "**授权码**：上一步跳转地址里 `authCode=` 后面的内容，有效期约 5 分钟。\n\n**户号 (subsCode)**：账单缴费网址的最后一段，例如 .../ZS0105/**1700075442** 里的 1700075442。\n\n**气户标识 (subsId)**：32 位字符串，取法：浏览器登录 https://www.towngasvcc.com/?login=true （手机号 + 短信验证码），再打开 https://www.towngasvcc.com/user/querySubsList ，页面 JSON 里 `subsId` 字段即是。\n\n{error_detail}",
+        "title": "微信扫码授权 + 填写户号信息",
+        "description": "查询余额需要登录态，本集成使用港华统一的微信授权，不会保存你的密码。\n\n1. 用**手机微信**扫一扫下面的二维码；\n2. 授权成功后页面会跳转到 `{oauth_redirect}`；\n3. 复制跳转地址里 `authCode=` 后面那一串，填到下面的「授权码」。\n\n{oauth_qr_markdown}\n\n> 二维码显示不出来时，复制下面「授权链接」框里的地址，发到手机微信里点开也可以授权。\n\n**户号 (subsCode)**：账单缴费网址的最后一段，例如 .../ZS0105/**1700075442** 里的 1700075442。\n\n**气户标识 (subsId)**：32 位字符串。浏览器登录 https://www.towngasvcc.com/?login=true （手机号 + 短信验证码）后打开 https://www.towngasvcc.com/user/querySubsList ，返回 JSON 里的 `subsId` 字段即是。\n\n{error_detail}",
         "data": {
+          "oauth_url": "授权链接（复制到手机微信打开）",
           "subsCode": "户号 (subsCode)",
           "subsId": "气户标识 (subsId，32 位)",
           "auth_code": "授权码 (authCode)",
@@ -25,14 +21,10 @@
         }
       },
       "reauth_confirm": {
-        "title": "重新授权（1/2）：微信扫码",
-        "description": "登录态已失效，需要重新授权户号 {subs_code}。\n\n请用**手机微信**扫描下面的二维码，授权后页面会跳转到 `{oauth_redirect}`，复制地址里的 authCode 填到下一步。\n\n{oauth_qr_markdown}\n\n二维码显示不出来时，把这个地址发到手机上用微信打开：\n`{oauth_url}`",
-        "data": {}
-      },
-      "reauth_token": {
-        "title": "重新授权（2/2）：填写授权码",
-        "description": "把上一步跳转地址里 `authCode=` 后面那一串粘贴进来。\n\n{oauth_qr_markdown}",
+        "title": "重新授权",
+        "description": "户号 {subs_code} 的登录态已失效，请重新授权：\n\n1. 用**手机微信**扫一扫下面的二维码；\n2. 把跳转地址里 `authCode=` 后面那一串填到下面的「授权码」。\n\n{oauth_qr_markdown}\n\n> 二维码显示不出来时，复制下面「授权链接」框里的地址，发到手机微信里点开也可以授权。\n\n{error_detail}",
         "data": {
+          "oauth_url": "授权链接（复制到手机微信打开）",
           "auth_code": "授权码 (authCode)"
         }
       }
@@ -40,12 +32,12 @@
     "error": {
       "invalid_org": "未找到所选分公司，请重新选择",
       "auth_failed": "授权失败：授权码无效或已过期（有效期约 5 分钟），请重新扫码再试",
-      "auth_code_required": "请填写 authCode"
+      "auth_code_required": "请填写授权码 (authCode)",
+      "oauth_url_failed": "获取微信授权地址失败，请检查网络后重试"
     },
     "abort": {
       "no_orgs": "内置的分公司列表（orglist.json）读取失败，请重新安装集成",
       "already_configured": "该分公司下的这个户号已经配置过了",
-      "oauth_url_failed": "获取微信授权地址失败，请检查网络后重试",
       "reauth_successful": "重新授权成功"
     }
   },
