@@ -12,7 +12,15 @@
 
 1. **选择燃气分公司**：下拉列表里可以搜「中山」这类关键字；
 2. **微信扫码授权**：配置向导会显示一个二维码，用**手机微信**扫一扫并确认授权（在电脑浏览器里直接打开这个链接会被微信拦截）。授权后页面会跳到 `https://weixin.towngasvcc.com/h5-gas/`，复制跳转地址里 `authCode=` 后面那一串；
-3. **填写户号信息与授权码**：需要三项 —— 户号（subsCode，见下一节）、**气户标识（subsId，32 位）**、上一步拿到的授权码；可选填刷新间隔（默认 30 分钟）和 FlareSolverr 地址。
+3. **填写户号信息与授权码**（下表三个值，字段名里也写了取法）；可选填刷新间隔（默认 30 分钟）和 FlareSolverr 地址。
+
+| 字段 | 从哪里获取 |
+| --- | --- |
+| **户号 subsCode** | 打开「业务办理 → 账单缴费」，网址最后一段就是，例如 `https://xxx.towngasvcc.com/business/pay/owe/ZS0105/`**`1700075442`** |
+| **气户标识 subsId** | 浏览器登录 <https://www.towngasvcc.com/?login=true>（手机号 + 图形验证码 + 短信验证码），再打开 <https://www.towngasvcc.com/user/querySubsList>，返回 JSON 里 32 位的 `subsId` |
+| **授权码 authCode** | 上一步微信扫码授权后，浏览器跳转到 `https://weixin.towngasvcc.com/h5-gas/?authCode=`**`xxxx`**`&state=...`，复制 `authCode=` 后面那一串（约 5 分钟内有效） |
+
+> 看到的二维码不明显？配置向导里还有个固定地址：**`http://你的HA地址:8123/api/towngas/qr`**，直接在浏览器打开就是当前要扫的二维码（不依赖前端翻译，任何情况下都能用）。
 
 集成会把 `refresh_token` 保存在配置条目里并定时保活；令牌彻底失效时会自动弹出「重新授权」，重新扫码即可，不需要重新添加集成。
 

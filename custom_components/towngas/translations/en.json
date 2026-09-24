@@ -10,22 +10,22 @@
       },
       "account": {
         "title": "WeChat authorization and account details",
-        "description": "Reading the balance requires a signed-in session. This integration uses the official Towngas WeChat authorization and never stores your password.\n\n1. Scan the QR code below with **WeChat on your phone**;\n2. After authorizing, the page redirects to `{oauth_redirect}`;\n3. Copy the value after `authCode=` from the redirect URL into the authCode field below.\n\n{oauth_qr_markdown}\n\n> If the QR code does not render, copy the URL from the \"Authorization URL\" field below and open it with WeChat on your phone.\n\n**subsCode**: the last part of the billing URL, for example 1700075442 in .../ZS0105/**1700075442**.\n\n**subsId**: a 32 character account id. Log in at https://www.towngasvcc.com/?login=true (phone number + SMS code) and open https://www.towngasvcc.com/user/querySubsList — the `subsId` field in the returned JSON.\n\n{error_detail}",
+        "description": "Reading the balance requires a signed-in session. This integration uses the official Towngas WeChat authorization and never stores your password.\n\n1. Scan the QR code below with **WeChat on your phone**;\n2. After authorizing, the page redirects to `{oauth_redirect}`;\n3. Copy the value after `authCode=` from the redirect URL into field 4.\n\n{oauth_qr_markdown}\n\n> If the QR code is not shown, open `{qr_url}` in this browser instead, or copy the link from field 1 and open it with WeChat on your phone.\n\n**Where each value comes from:**\n- field 2 **subsCode**: last part of the billing URL (e.g. .../ZS0105/1700075442 -> 1700075442)\n- field 3 **subsId**: log in at www.towngasvcc.com/?login=true (phone + SMS), then open www.towngasvcc.com/user/querySubsList and copy the 32 character subsId\n- field 4 **authCode**: the value after `authCode=` in the redirect URL (valid ~5 minutes)\n\n{error_detail}",
         "data": {
-          "oauth_url": "Authorization URL (copy to WeChat on your phone)",
-          "subsCode": "Subscriber number (subsCode)",
-          "subsId": "Account id (subsId, 32 chars)",
-          "auth_code": "authCode",
-          "updatetime": "Update interval (minutes)",
-          "flaresolverr_url": "FlareSolverr URL (optional)"
+          "① 微信扫码授权：浏览器打开 <你的HA地址>/api/towngas/qr 用手机微信扫一扫（也可以复制本框里的链接，发到手机微信里点开）": "1 WeChat authorization (copy the link to WeChat)",
+          "② 户号 subsCode：账单缴费网址最后一段，例如 .../ZS0105/1700075442 就填 1700075442": "2 Subscriber number (subsCode)",
+          "③ 气户标识 subsId：浏览器登录 www.towngasvcc.com/?login=true（手机号+短信验证码）后，打开 www.towngasvcc.com/user/querySubsList，复制其中 32 位的 subsId": "3 Account id (subsId, 32 chars)",
+          "④ 授权码 authCode：扫码授权后，从跳转地址里复制 authCode= 后面那一串（约 5 分钟内有效）": "4 authCode",
+          "⑤ 刷新间隔（分钟）": "5 Update interval (minutes)",
+          "⑥ FlareSolverr 地址（可选，仅个别地区需要）": "6 FlareSolverr URL (optional)"
         }
       },
       "reauth_confirm": {
         "title": "Re-authorize",
-        "description": "The session for subscriber {subs_code} has expired, please authorize again:\n\n1. Scan the QR code below with **WeChat on your phone**;\n2. Copy the value after `authCode=` from the redirect URL into the authCode field below.\n\n{oauth_qr_markdown}\n\n> If the QR code does not render, copy the URL from the \"Authorization URL\" field below and open it with WeChat on your phone.\n\n{error_detail}",
+        "description": "The session for subscriber {subs_code} has expired, please authorize again:\n\n1. Scan the QR code below with **WeChat on your phone** (if it is not shown, open `{qr_url}` in this browser);\n2. Copy the value after `authCode=` from the redirect URL into field 4.\n\n{oauth_qr_markdown}\n\n{error_detail}",
         "data": {
-          "oauth_url": "Authorization URL (copy to WeChat on your phone)",
-          "auth_code": "authCode"
+          "① 微信扫码授权：浏览器打开 <你的HA地址>/api/towngas/qr 用手机微信扫一扫（也可以复制本框里的链接，发到手机微信里点开）": "1 WeChat authorization (copy the link to WeChat)",
+          "④ 授权码 authCode：扫码授权后，从跳转地址里复制 authCode= 后面那一串（约 5 分钟内有效）": "4 authCode"
         }
       }
     },
