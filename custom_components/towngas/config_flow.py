@@ -204,16 +204,17 @@ class TowngasConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     ) -> FlowResult:
         """第二步：扫码授权 + 填户号信息。"""
         errors: dict[str, str] = {}
-        placeholders = self._qr_placeholders()
 
         if self.selected_org is None:
             return self.async_abort(reason="no_orgs")
 
-        if await self._async_ensure_oauth_url() is None:
+        # 先拿到授权地址，再构建占位符/表单默认值（顺序反了会导致链接为空）
+        url_ok = await self._async_ensure_oauth_url() is not None
+        if not url_ok:
             errors["base"] = "oauth_url_failed"
+        placeholders = self._qr_placeholders()
+        if not url_ok:
             placeholders["error_detail"] = "（获取微信授权地址失败，请检查网络后重试）"
-        else:
-            placeholders["oauth_qr_markdown"] = render_qr_markdown(self._oauth_url)
 
         if user_input is not None and not errors:
             self._subs_code = user_input[CONF_SUBS_CODE]
@@ -289,12 +290,13 @@ class TowngasConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     ) -> FlowResult:
         """重新授权：扫码 + 填新 authCode（同一表单，避免空白窗口）。"""
         errors: dict[str, str] = {}
-        placeholders = self._qr_placeholders()
 
-        if await self._async_ensure_oauth_url() is None:
+        url_ok = await self._async_ensure_oauth_url() is not None
+        if not url_ok:
             errors["base"] = "oauth_url_failed"
-        else:
-            placeholders["oauth_qr_markdown"] = render_qr_markdown(self._oauth_url)
+        placeholders = self._qr_placeholders()
+        if not url_ok:
+            placeholders["error_detail"] = "（获取微信授权地址失败，请检查网络后重试）"
 
         if user_input is not None and not errors:
             auth_code = _parse_auth_code(user_input.get(CONF_AUTH_CODE, ""))
